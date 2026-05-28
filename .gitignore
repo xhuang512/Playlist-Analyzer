@@ -1,0 +1,5 @@
+# files to ignore
+.env
+__pycache__/
+.ipynb_checkpoints/
+.streamlit/secrets.toml
