@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Spotify Playlist Analyzer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+  </head>
+  <body class="{% if has_results %}has-results{% else %}preflight{% endif %}">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Spotify Playlist Analyzer</p>
+        <h1>Playlist intelligence console</h1>
+      </div>
+      {% if has_results %}
+        <nav aria-label="Dashboard sections">
+          <a href="#profile">Profile</a>
+          <a href="#inference">Inference</a>
+          <a href="#recommendations">Recommendations</a>
+        </nav>
+      {% endif %}
+    </header>
+
+    <main>
+      <section class="input-section" aria-label="Playlist input">
+        <form method="post" class="playlist-form">
+          <div class="loading-overlay" aria-hidden="true">
+            <div class="loader-disc"></div>
+            <div>
+              <strong>Analyzing playlist</strong>
+              <span>Fetching tracks, artist metadata, language signals, and popularity structure</span>
+            </div>
+          </div>
+          <div class="scanner-panel" aria-hidden="true">
+            <div class="scanner-grid"></div>
+            <div class="scan-line"></div>
+            <div class="waveform">
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+          <div class="form-copy">
+            <label for="playlist_link">Spotify playlist link</label>
+            <div class="input-row">
+              <input
+                id="playlist_link"
+                name="playlist_link"
+                type="url"
+                placeholder="https://open.spotify.com/playlist/..."
+                value="{{ playlist_link or '' }}"
+                required
+              >
+              <button type="submit">Analyze</button>
+            </div>
+            <p>Public playlists only</p>
+            {% if error %}
+              <p class="form-error">{{ error }}</p>
+            {% endif %}
+          </div>
+        </form>
+      </section>
+
+      {% if has_results %}
+      {% if cover_items %}
+      <section class="cover-stage" aria-label="Playlist album covers">
+        <div class="cover-copy">
+          <p class="eyebrow">Now Scanning</p>
+          <h2>Album-cover signal map</h2>
+          <p>{{ cover_items|length }} albums sampled from the submitted playlist. Hover a cover for album details; click to open it on Spotify.</p>
+        </div>
+        <div class="cover-scroll-wrap">
+          <div class="cover-scroll-hint">Scroll cover map</div>
+          <div class="cover-wall">
+            {% for album in cover_items %}
+              <a
+                class="cover-card"
+                href="{{ album.album_url or '#' }}"
+                {% if album.album_url %}target="_blank" rel="noreferrer"{% endif %}
+                aria-label="Open {{ album.album_name }} by {{ album.main_artist_name }}"
+              >
+                <img src="{{ album.album_image_url }}" alt="" loading="lazy">
+                <span class="cover-info">
+                  <strong>{{ album.album_name }}</strong>
+                  <small>{{ album.main_artist_name }} · {{ album.release_date }}</small>
+                  <em>{{ album.track_count }} track{% if album.track_count != 1 %}s{% endif %} in playlist</em>
+                  <b>{{ album.track_preview }}</b>
+                </span>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="summary-section" aria-label="Playlist summary">
+        <div class="section-heading compact">
+          <p class="eyebrow">Summary</p>
+          <h2>Playlist snapshot</h2>
+          <p>A quick statistical overview of the submitted playlist before deeper visual analysis.</p>
+        </div>
+        <div class="summary-layout">
+          <div class="highlight-grid">
+            {% for item in summary.highlights %}
+              {% if item.url %}
+                <a class="highlight-card" href="{{ item.url }}" target="_blank" rel="noreferrer">
+              {% else %}
+                <article class="highlight-card">
+              {% endif %}
+                <div class="highlight-media">
+                  {% if item.image_url %}
+                    <img src="{{ item.image_url }}" alt="" loading="lazy">
+                  {% else %}
+                    <i data-lucide="{{ item.icon }}"></i>
+                  {% endif %}
+                </div>
+                <div class="highlight-copy">
+                  <span><i data-lucide="{{ item.icon }}"></i>{{ item.label }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.subtitle }}</small>
+                </div>
+              {% if item.url %}
+                </a>
+              {% else %}
+                </article>
+              {% endif %}
+            {% endfor %}
+          </div>
+
+          <div class="metrics">
+          {% for metric in summary.stat_cards %}
+            <div class="metric">
+              <i data-lucide="{{ metric.icon }}"></i>
+              <span>{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+            </div>
+          {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      {% if signals %}
+      <section class="signal-section" aria-label="Playlist taste signals">
+        <div class="signal-panel genre-signal">
+          <div class="signal-heading">
+            <p class="eyebrow">Taste Signals</p>
+            <h2>Genre gravity</h2>
+            <p>Bubble size represents how often each artist genre appears in this playlist.</p>
+          </div>
+          <div class="genre-cloud">
+            {% for genre in signals.genre_chips %}
+              <div
+                class="genre-bubble"
+                style="--bubble-size: {{ genre.size }}px; --weight: {{ genre.weight }};"
+                title="{{ genre.name }}: {{ genre.count }} tracks"
+              >
+                <strong>{{ genre.name }}</strong>
+                <small>{{ genre.count }}</small>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="signal-panel language-signal">
+          <div class="signal-heading">
+            <h2>Language mix</h2>
+            <p>Title-script distribution, shown as playlist share.</p>
+          </div>
+          <div class="language-bars">
+            {% for item in signals.language_mix %}
+              <div class="language-row">
+                <span>{{ item.label }}</span>
+                <div><b style="width: {{ item.pct }}%;"></b></div>
+                <em>{{ item.pct }}%</em>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="signal-panel spectrum-signal">
+          <div class="signal-heading">
+            <h2>Popularity spectrum</h2>
+            <p>A quick contrast between the most mainstream track and the most niche nonzero-popularity track.</p>
+          </div>
+          <div class="spectrum-cards">
+            {% for label, track in [("Mainstream pull", signals.spectrum.mainstream), ("Hidden corner", signals.spectrum.hidden)] %}
+              <a class="spectrum-card" href="{{ track.track_url or '#' }}" target="_blank" rel="noreferrer">
+                {% if track.album_image_url %}
+                  <img src="{{ track.album_image_url }}" alt="">
+                {% else %}
+                  <i data-lucide="music-2"></i>
+                {% endif %}
+                <span>
+                  <small>{{ label }}</small>
+                  <strong>{{ track.track_name or "Unknown" }}</strong>
+                  <em>{{ track.main_artist_name or "Unknown" }} · Popularity {{ track.popularity or "Unknown" }}</em>
+                </span>
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+      {% endif %}
+
+      <section id="profile" class="section visual-section">
+        <div class="section-heading">
+          <p class="eyebrow">Visual Analysis</p>
+          <h2>Playlist structure, rebuilt visually</h2>
+          <p>
+            A compact visual deck for language composition, popularity differences, artist concentration,
+            release era, and playlist-building activity.
+          </p>
+        </div>
+
+        <div class="chart-grid two">
+          <article class="panel viz-panel language-composition-panel">
+            <div class="panel-heading">
+              <span class="chart-badge">01</span>
+              <h3>Song Title Language Distribution</h3>
+              <p>Current language labels are based on title script, not confirmed sung language.</p>
+            </div>
+            <div class="language-composition">
+              <div class="composition-total">
+                <strong>{{ language_visual.total }}</strong>
+                <span>tracks analyzed</span>
+              </div>
+              <div class="composition-bars">
+                {% for segment in language_visual.segments %}
+                  <div class="composition-row">
+                    <div class="composition-label">
+                      <span><i style="background: {{ segment.color }};"></i>{{ segment.label }}</span>
+                      <b>{{ segment.count }} tracks · {{ segment.pct }}%</b>
+                    </div>
+                    <div class="composition-track">
+                      <div style="width: {{ segment.pct }}%; background: {{ segment.color }};"></div>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          </article>
+
+          <article class="panel viz-panel popularity-lanes-panel">
+            <div class="panel-heading">
+              <span class="chart-badge">02</span>
+              <h3>Popularity by Title Language</h3>
+              <p>Popularity scores run from 0 to 100. The thick band shows the middle 50% of tracks.</p>
+            </div>
+            <div class="popularity-lanes">
+              <div class="lane-legend">
+                <span><i class="legend-range"></i>IQR</span>
+                <span><i class="legend-median"></i>Median</span>
+                <span><i class="legend-mean"></i>Mean</span>
+              </div>
+              <div class="lane-scale" aria-hidden="true">
+                <span>0</span><span>50</span><span>100</span>
+              </div>
+              {% for item in popularity_language %}
+                <div class="popularity-lane">
+                  <div class="lane-label">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.count }} tracks</span>
+                  </div>
+                  <div class="lane-track">
+                    <i class="lane-range" style="left: {{ item.q1 }}%; width: {{ item.q3 - item.q1 }}%;"></i>
+                    <i class="lane-minmax" style="left: {{ item.min }}%; width: {{ item.max - item.min }}%;"></i>
+                    <b class="lane-median" style="left: {{ item.median }}%;"></b>
+                    <b class="lane-mean" style="left: {{ item.mean }}%;"></b>
+                  </div>
+                  <div class="lane-detail">
+                    <span>Mean {{ item.mean }}</span>
+                    <span>Median {{ item.median }}</span>
+                    <span>Range {{ item.min }}-{{ item.max }}</span>
+                  </div>
+                  <div class="lane-top-track">
+                    Top track: <strong>{{ item.top_track }}</strong> by {{ item.top_artist }} · {{ item.top_popularity }}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </article>
+
+          <article class="panel viz-panel">
+            <div class="panel-heading">
+              <span class="chart-badge">04</span>
+              <h3>Most Frequent Main Artists</h3>
+              <p>Sorted by playlist presence. Longer and darker bars represent more tracks.</p>
+            </div>
+            <div class="artist-controls" aria-label="Artist chart controls">
+              <button type="button" class="artist-sort is-active" data-sort="count">
+                <i data-lucide="list-ordered"></i> Tracks
+              </button>
+              <button type="button" class="artist-sort" data-sort="popularity">
+                <i data-lucide="star"></i> Popularity
+              </button>
+              <button type="button" class="artist-sort" data-sort="followers">
+                <i data-lucide="users"></i> Followers
+              </button>
+            </div>
+            <div class="artist-rank-chart" id="artistRankChart">
+              {% for artist in artist_items %}
+                {% if artist.artist_url %}
+                <a
+                  href="{{ artist.artist_url }}"
+                  target="_blank"
+                  rel="noreferrer"
+                {% else %}
+                <article
+                {% endif %}
+                  class="artist-rank-row"
+                  data-count="{{ artist.track_count }}"
+                  data-popularity="{{ artist.artist_popularity }}"
+                  data-followers="{{ artist.artist_followers }}"
+                >
+                  <div class="artist-avatar">
+                    {% if artist.artist_image_url %}
+                      <img src="{{ artist.artist_image_url }}" alt="" loading="lazy">
+                    {% else %}
+                      <i data-lucide="mic-2"></i>
+                    {% endif %}
+                  </div>
+                  <div class="artist-rank-main">
+                    <div class="artist-rank-label">
+                      <strong>{{ artist.name }}</strong>
+                      <span>{{ artist.track_count }} tracks</span>
+                    </div>
+                    <div class="artist-bar-shell" aria-hidden="true">
+                      <div
+                        class="artist-bar"
+                        style="width: {{ artist.bar_pct }}%; background: {{ artist.bar_color }};"
+                      ></div>
+                    </div>
+                    <div class="artist-rank-meta">
+                      <span>Avg track popularity {{ artist.avg_track_popularity }}</span>
+                      <span>Artist popularity {{ artist.artist_popularity }}</span>
+                      <span>{{ artist.artist_followers_label }} followers</span>
+                    </div>
+                  </div>
+                {% if artist.artist_url %}
+                </a>
+                {% else %}
+                </article>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </article>
+        </div>
+
+        <div class="chart-grid two">
+          <article class="panel">
+            <div class="panel-heading">
+              <h3>Track Count by Release Decade</h3>
+              <p>A descriptive view of whether the playlist leans recent, older, or mixed.</p>
+            </div>
+            <div id="releaseDecade" class="chart"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-heading">
+              <h3>Tracks Added Over Time</h3>
+              <p>A user-behavior signal showing when the playlist grew.</p>
+            </div>
+            <div id="tracksAdded" class="chart"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="inference" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Statistical Inference</p>
+          <h2>What explains popularity in this playlist?</h2>
+          <p>
+            The inference layer focuses on association rather than causation. Spotify popularity
+            is platform-dependent, and this is a personal playlist sample.
+          </p>
+        </div>
+
+        <div class="insight-grid">
+          <article class="insight">
+            <h3>Chinese vs Latin-script popularity</h3>
+            {% if stats.group_comparison.available %}
+            <p>
+              Welch's t-test gives p = <strong>{{ "%.4f"|format(stats.group_comparison.p) }}</strong>,
+              with Cohen's d = <strong>{{ "%.2f"|format(stats.group_comparison.cohens_d) }}</strong>.
+              This supports a difference within this playlist, but not a universal claim about music culture.
+            </p>
+            {% else %}
+            <p>{{ stats.group_comparison.message }}</p>
+            {% endif %}
+          </article>
+
+          <article class="insight">
+            <h3>Multiple linear regression</h3>
+            {% if stats.ols.available %}
+            <p>
+              The OLS model has adjusted R² = <strong>{{ "%.3f"|format(stats.ols.adj_r2) }}</strong>.
+              In this feature set, artist popularity is the clearest explanatory variable for track popularity.
+            </p>
+            {% else %}
+            <p>{{ stats.ols.message }}</p>
+            {% endif %}
+          </article>
+
+          <article class="insight">
+            <h3>Diagnostics</h3>
+            {% if stats.ols.available %}
+            <p>
+              Breusch-Pagan p = <strong>{{ "%.4f"|format(stats.ols.bp_pvalue) }}</strong>,
+              suggesting heteroskedasticity. VIF checks also indicate correlated artist-level predictors.
+            </p>
+            {% else %}
+            <p>Regression diagnostics will appear when the playlist has enough observations.</p>
+            {% endif %}
+          </article>
+        </div>
+
+        <div class="table-panel">
+          <h3>Mean Popularity Confidence Intervals</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Language/script group</th>
+                <th>n</th>
+                <th>Mean</th>
+                <th>95% CI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in stats.language_ci %}
+                <tr>
+                  <td>{{ row.language_group }}</td>
+                  <td>{{ "%.0f"|format(row.n) }}</td>
+                  <td>{{ "%.1f"|format(row.mean) }}</td>
+                  <td>{{ "%.1f"|format(row.ci_low) }} to {{ "%.1f"|format(row.ci_high) }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="recommendations" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Recommendation Modelling</p>
+          <h2>Candidate tracks matched to the playlist profile</h2>
+          <p>
+            Recommendations come from the modelling notebook's balanced ranking output. Scores combine
+            playlist similarity and recommendation-mode logic.
+          </p>
+        </div>
+
+        <div class="table-panel">
+          <p class="empty">
+            The current page analyzes the submitted playlist in real time. The next step is to connect
+            the recommendation modelling script to this submitted playlist instead of the old fixed CSV export.
+          </p>
+        </div>
+      </section>
+      {% endif %}
+    </main>
+
+    {% if has_results %}
+    <script>
+      const charts = {{ charts | tojson }};
+      const options = { actions: false, renderer: "canvas" };
+      for (const [id, spec] of Object.entries(charts)) {
+        vegaEmbed(`#${id}`, spec, options);
+      }
+    </script>
+    {% endif %}
+    <script>
+      const form = document.querySelector(".playlist-form");
+      if (form) {
+        form.addEventListener("submit", () => {
+          form.classList.add("is-loading");
+          const button = form.querySelector("button");
+          if (button) button.textContent = "Analyzing";
+        });
+      }
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+      const artistChart = document.querySelector("#artistRankChart");
+      const artistSortButtons = document.querySelectorAll(".artist-sort");
+      if (artistChart && artistSortButtons.length) {
+        artistSortButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            const sortKey = button.dataset.sort;
+            artistSortButtons.forEach((item) => item.classList.remove("is-active"));
+            button.classList.add("is-active");
+            const rows = Array.from(artistChart.querySelectorAll(".artist-rank-row"));
+            rows
+              .sort((a, b) => {
+                const attr = sortKey === "count" ? "count" : sortKey;
+                return Number(b.dataset[attr] || 0) - Number(a.dataset[attr] || 0);
+              })
+              .forEach((row) => artistChart.appendChild(row));
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
